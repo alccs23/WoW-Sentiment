@@ -1,0 +1,70 @@
+import requests
+import json 
+import datetime
+from bs4 import BeautifulSoup
+import pymongo
+
+mongo_uri = "mongodb://localhost:27017"
+database_name = "lo"
+collection_name = "DataTest"
+
+client = pymongo.MongoClient(mongo_uri)
+db = client[database_name]
+collection = db[collection_name]
+
+n = 0
+
+print("Scraping started. Press Ctrl+C to stop.")
+
+try:
+    while True:
+        # Define the URL 
+        url = "https://us.forums.blizzard.com/en/wow/c/community/general-discussion/171/l/latest.json?ascending=false&no_definitions=true&page=" + str(n)
+
+        # Send an HTTP GET request
+        response = requests.get(url)
+
+        # Check if the request was successful (status code 200)
+        if response.status_code == 200:
+
+            # Parse the JSON response  
+            data = response.json()
+            
+            for i in range(30):
+                url_id = data['topic_list']['topics'][i]['id']
+                title_info = data['topic_list']['topics'][i]['slug']
+                
+                postUrl = 'https://us.forums.blizzard.com/en/wow/t/' + title_info + '/' + str(url_id)
+                
+                post = requests.get(postUrl)
+                forum_page = post.text
+                soup = BeautifulSoup(forum_page, 'html.parser')
+
+                # Find the <div> element with the specified attributes 
+                post_div = soup.find('div', class_='post', itemprop='articleBody')
+
+                # Extract all the text within the <div> element
+                post_text = post_div.get_text(separator=" ").strip().replace('\n', ' ')
+                
+                post_title = data['topic_list']['topics'][i]["fancy_title"]
+                post_date = data['topic_list']['topics'][i]["created_at"].split("T")[0]
+
+                # Define a document to insert into the collection
+                post_data = {
+                    "title": post_title,
+                    "content": post_text,
+                    "creation_date": post_date
+                }
+
+                try:
+                    inserted_post = collection.insert_one(post_data)
+                except pymongo.errors.DuplicateKeyError:
+                    # Handle duplicate key error
+                    pass
+            
+            n += 1
+            
+except KeyboardInterrupt:
+    print("\nScraping stopped.")
+
+client.close()
